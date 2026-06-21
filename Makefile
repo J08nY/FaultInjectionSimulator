@@ -4,12 +4,7 @@ VICTIMBINS = $(addprefix demos/bin/, $(notdir $(VICTIMSRCS:.c=)))
 CC?=musl-gcc
 # Enable by default
 CFLAGS+= -DSYMMAP_SUPPORT -DCONFIG_CACHE
-
-ifeq ($(CC), musl-gcc)
-	# Weird Arch Linux musl quirk
-	CFLAGS += -fno-link-libatomic
-endif
-
+# Ditch the source prefixes
 CFLAGS += -fdebug-prefix-map=$(CURDIR)=.
 
 all: simulator demos
