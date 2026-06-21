@@ -10,7 +10,7 @@ ifeq ($(CC), musl-gcc)
 	CFLAGS += -fno-link-libatomic
 endif
 
-CFLAGS += -fdebug-prefix-map=$(PWD)=.
+CFLAGS += -fdebug-prefix-map=$(CURDIR)=.
 
 all: simulator demos
 

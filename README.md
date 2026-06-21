@@ -1,5 +1,4 @@
 # Fault Injection Simulator
-[![Build Status](https://travis-ci.com/misc0110/FaultInjectionSimulator.svg?branch=master)](https://travis-ci.com/misc0110/FaultInjectionSimulator)
 
 A simple framework to simulate fault attacks on x86 binaries.
 

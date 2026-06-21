@@ -1,0 +1,16 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: make
+      - run: make symmap
+      - run: ./simulator demos/bin/victim1.fault demos/bin/victim1 | grep Success
+      - run: ./simulator demos/bin/victim2.fault demos/bin/victim2 | grep Success
+      - run: ./simulator demos/bin/victim3.fault demos/bin/victim3 | grep Success
+      - run: ./simulator demos/bin/victim4.fault demos/bin/victim4 | grep Success
