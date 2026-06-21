@@ -1,4 +1,5 @@
 # Fault Injection Simulator
+[![CI](https://github.com/J08nY/FaultInjectionSimulator/actions/workflows/ci.yml/badge.svg)](https://github.com/J08nY/FaultInjectionSimulator/actions/workflows/ci.yml)
 
 A simple framework to simulate fault attacks on x86 binaries.
 
