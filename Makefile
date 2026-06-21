@@ -1,14 +1,32 @@
 VICTIMSRCS = $(wildcard demos/victim*.c)
-VICTIMPROGS = $(patsubst %.c,%,$(VICTIMSRCS))
+VICTIMBINS = $(addprefix demos/bin/, $(notdir $(VICTIMSRCS:.c=)))
 
-all: simulator $(VICTIMPROGS)
+CC?=musl-gcc
+# Enable by default
+CFLAGS+= -DSYMMAP_SUPPORT -DCONFIG_CACHE
 
+ifeq ($(CC), musl-gcc)
+	# Weird Arch Linux musl quirk
+	CFLAGS += -fno-link-libatomic
+endif
+
+CFLAGS += -fdebug-prefix-map=$(PWD)=.
+
+all: simulator demos
+
+# Build simulator
 simulator: simulator.c
-	gcc simulator.c -o simulator
+	$(CC) $(CFLAGS) simulator.c -o simulator
 
+# Build demos
+demos: $(VICTIMBINS)
 
-%: %.c
-	$(CC) $(CFLAGS) -I./ -static -o $@ $<
+demos/bin/%: demos/%.c
+	$(CC) $(CFLAGS) -I./ -g -static -o $@ $<
+
+# Generate symmap files for demos
+symmap: $(VICTIMBINS)
+	for p in $(VICTIMBINS); do ./mksymmap.sh $$p; done
 
 clean:
-	rm -f simulator $(VICTIMPROGS)
+	rm -f simulator $(VICTIMBINS) $(VICTIMBINS:=.symmap)

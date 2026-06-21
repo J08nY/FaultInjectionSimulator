@@ -19,7 +19,6 @@
 
 #include "simulator.h"
 
-// #define CONFIG_CACHE
 
 // ------------------------------------------------------------------------------------------------
 static Config config = {
@@ -40,6 +39,15 @@ static size_t fault_cooldown = 0;
 
 static size_t start_time;
 static int debug_level = 0;
+
+#ifdef SYMMAP_SUPPORT
+static MapEntry* sym_map = NULL;
+static int sym_count = 0;
+static MapEntry* line_map = NULL;
+static int line_count = 0;
+static void load_symmap(char* path);
+static int resolve_name(const char* name, size_t* addr);
+#endif
 
 
 // ------------------------------------------------------------------------------------------------
@@ -84,12 +92,33 @@ int parse_position(char* pos, Command* c, size_t line_nr) {
         return 1;
     }
     if(pos[0] == '@') {
-        // absolute RIP
+        // absolute RIP by hex address
         if(config.position_blacklist & RIP) {
             ERROR(TAG_LINE "RIP-based faulting not allowed for this binary!\n", line_nr);
             return 1;
         }
         c->rip = strtoull(pos + 1, NULL, 0);
+        c->position = RIP;
+    } else if(pos[0] == '&') {
+        // absolute RIP by symbol or source line
+        if(config.position_blacklist & RIP) {
+            ERROR(TAG_LINE "RIP-based faulting not allowed for this binary!\n", line_nr);
+            return 1;
+        }
+#ifdef SYMMAP_SUPPORT
+        size_t addr;
+        if(resolve_name(pos + 1, &addr)) {
+            if(sym_count == 0 && line_count == 0)
+                ERROR(TAG_LINE "Symbolic trigger '%s' requires a symmap file (run ./mksymmap.sh first)\n", line_nr, pos);
+            else
+                ERROR(TAG_LINE "Unknown symbol or line '%s'\n", line_nr, pos);
+            return 1;
+        }
+        c->rip = addr;
+#else
+        ERROR(TAG_LINE "Symbolic trigger '%s' requires SYMMAP_SUPPORT enabled at compile time\n", line_nr, pos);
+        return 1;
+#endif
         c->position = RIP;
     } else if(pos[0] == '#') {
         // instruction count
@@ -112,7 +141,24 @@ int parse_destination(char* pos, Command* c, size_t line_nr) {
         ERROR(TAG_LINE "No destination given\n", line_nr);
         return 1;
     }
-    c->destination = strtoull(pos, NULL, 0);
+    if(pos[0] == '&') {
+#ifdef SYMMAP_SUPPORT
+        size_t addr;
+        if(resolve_name(pos + 1, &addr)) {
+            if(sym_count == 0 && line_count == 0)
+                ERROR(TAG_LINE "Symbolic destination '%s' requires a symmap file (run ./mksymmap.sh first)\n", line_nr, pos);
+            else
+                ERROR(TAG_LINE "Unknown symbol '%s'\n", line_nr, pos);
+            return 1;
+        }
+        c->destination = addr;
+#else
+        ERROR(TAG_LINE "Symbolic destination '%s' requires SYMMAP_SUPPORT enabled at compile time\n", line_nr, pos);
+        return 1;
+#endif
+    } else {
+        c->destination = strtoull(pos, NULL, 0);
+    }
     return 0;
 }
 
@@ -239,7 +285,7 @@ int parse_script(char* file) {
 void parse_config(char* binary) {
     char config_cache[128];
     FILE* f;
-    snprintf(config_cache, sizeof(config_cache), "%s.confcache", binary);
+    snprintf(config_cache, sizeof(config_cache), "%s" CONFCACHE_EXT, binary);
 #ifdef CONFIG_CACHE
     f = fopen(config_cache, "rb");
     if(f) {
@@ -305,6 +351,73 @@ void parse_config(char* binary) {
     }
 #endif
 }
+
+#ifdef SYMMAP_SUPPORT
+// ------------------------------------------------------------------------------------------------
+void load_symmap(char* path) {
+    FILE* f = fopen(path, "r");
+    if(!f) {
+        DEBUG("No symmap file '%s' found, skipping symbolic resolution\n", path);
+        return;
+    }
+    char* line = NULL;
+    size_t len = 0;
+    while(getline(&line, &len, f) != -1) {
+        char type[32];
+        char key[1024];
+        size_t addr;
+        if(sscanf(line, "%31s %1023s %zx", type, key, &addr) < 3)
+            continue;
+        if(!strcmp(type, "sym")) {
+            sym_map = realloc(sym_map, (sym_count + 1) * sizeof(MapEntry));
+            sym_map[sym_count].key = strdup(key);
+            sym_map[sym_count].address = addr;
+            sym_count++;
+        } else if(!strcmp(type, "line")) {
+            line_map = realloc(line_map, (line_count + 1) * sizeof(MapEntry));
+            line_map[line_count].key = strdup(key);
+            line_map[line_count].address = addr;
+            line_count++;
+        }
+    }
+    free(line);
+    fclose(f);
+    DEBUG("Loaded %d symbols and %d line mappings from '%s'\n", sym_count, line_count, path);
+}
+
+// ------------------------------------------------------------------------------------------------
+int resolve_name(const char* name, size_t* addr) {
+    const char* plus = strchr(name, '+');
+    size_t sym_len;
+    size_t offset = 0;
+    if(plus) {
+        sym_len = plus - name;
+        offset = strtoull(plus + 1, NULL, 0);
+    } else {
+        sym_len = strlen(name);
+    }
+
+    for(int i = 0; i < sym_count; i++) {
+        if(strlen(sym_map[i].key) == sym_len && !strncmp(sym_map[i].key, name, sym_len)) {
+            *addr = sym_map[i].address + offset;
+            return 0;
+        }
+    }
+
+    const char* colon = strchr(name, ':');
+    if(colon && (size_t)(colon - name) < sym_len) {
+        for(int i = 0; i < line_count; i++) {
+            size_t key_len = strlen(line_map[i].key);
+            if(key_len == sym_len && !strncmp(line_map[i].key, name, sym_len)) {
+                *addr = line_map[i].address + offset;
+                return 0;
+            }
+        }
+    }
+
+    return 1;
+}
+#endif
 
 // ------------------------------------------------------------------------------------------------
 void show_status(int status) {
@@ -482,6 +595,12 @@ int main(int argc, char ** argv, char **envp) {
         DEBUG("Code section from 0x%zx to 0x%zx\n", config.code_start, config.code_end);
     }
     
+#ifdef SYMMAP_SUPPORT
+    char symmap_path[1024];
+    snprintf(symmap_path, sizeof(symmap_path), "%s" SYMMAP_EXT, program);
+    load_symmap(symmap_path);
+#endif
+    
     if(parse_script(argv[1])) {
         exit(-1);
     }
@@ -528,6 +647,12 @@ int main(int argc, char ** argv, char **envp) {
         usleep(1000);
         kill(pid, 9);
         free(commands);
+#ifdef SYMMAP_SUPPORT
+        for(int i = 0; i < sym_count; i++) free(sym_map[i].key);
+        for(int i = 0; i < line_count; i++) free(line_map[i].key);
+        free(sym_map);
+        free(line_map);
+#endif
 
         if(WIFEXITED(status) && WEXITSTATUS(status) == 0) {
             printf("\n\033[92mSuccessfully exploited %s!\033[0m\n", program);

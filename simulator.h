@@ -60,11 +60,19 @@ typedef struct {
     size_t code_end;
 } Config;
 
+#ifdef SYMMAP_SUPPORT
+typedef struct {
+    char* key;
+    size_t address;
+} MapEntry;
+#endif
 
 #define ERROR(...) tagged_printf(TAG_ERROR, 0, __VA_ARGS__)
 #define DEBUG(...) tagged_printf(TAG_DEBUG, 1, __VA_ARGS__)
 
 
 #define DELIMITER " \t\r\n"
+#define SYMMAP_EXT ".symmap"
+#define CONFCACHE_EXT ".confcache"
 
 #endif

@@ -10,7 +10,7 @@ The simulator loads a statically-compiled x86 ELF binary and a "fault" script. T
 The behavior of the simulator can be configured directly via the victim binaries. A victim binary can contain configuration options for the simulator (see Configuration).
 For example, to run a demo victim:
 
-    ./simulator demos/victim1.fault demos/victim1
+    ./simulator demos/bin/victim1.fault demos/bin/victim1
 
 
 ## Fault Script
@@ -19,7 +19,14 @@ Faults are induced using fault scripts which are loaded with the binary. Command
 Lines starting with # are ignored and can be used for comments.
 
 ### Trigger
-Currently, a trigger can be an absolute RIP value (i.e., when the instruction pointer reaches a certain position in the binary) or the n-th executed instruction.
+Currently, a trigger can be:
+ - an absolute RIP value (i.e., when the instruction pointer reaches a certain position in the binary) with `@RIP`
+ - the n-th executed instruction with `#n`
+ - function + offset `&main+0x4` (requires `SYMMAP_SUPPORT`)
+ - source code line `&victim1.c:5` (requires `SYMMAP_SUPPORT`)
+
+The last two options require compiling the simulator with `-DSYMMAP_SUPPORT` and pre-processing the binaries with the `mksymmap.sh` script. The script uses `nm` and `objdump`
+to produce a `.symmap` file that contains information about symbol addresses and line numbers that is then parsed by the simulator.
 
 #### Absolute RIP
 
@@ -39,6 +46,24 @@ Triggers a fault after that many instructions were executed.
 ##### Example
 Skip two bytes in the instruction stream after executing 10000 instructions: `skip 2 #10000`
 
+#### Function and Offset
+
+	&<function>+<offset>
+
+Triggers a fault when the RIP reaches the function and offset.
+
+##### Example
+Skip two bytes when the instruction pointer reaches 4 bytes after `main`: `skip 2 &main+2`
+
+#### Source Code Line
+
+	&<file.c>:<line>
+
+Triggers a fault when the RIP reaches the given source code line. The first instruction on that line is used.
+
+##### Example
+Skip two bytes when the instruction pointer reaches the fifth line of `victim.c`: `skip 2 &victim.c:5`
+
 ### Commands
 The following commands are supported:
 
@@ -55,7 +80,7 @@ Skip 1 byte when the instruction pointer is at 0x400b51: `skip 1 @0x400b51`
 
     zero <address> <trigger>
 
-Sets the given memory address <address> to 0 when the given trigger <trigger> is reached. The function zeroes out one byte (i.e., 8 bit).
+Sets the given memory address <address> to 0 when the given trigger <trigger> is reached. The function zeroes out one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
 
 ##### Example
 Write a zero word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `zero 0x6bb330 @0x400b6e`
@@ -64,7 +89,7 @@ Write a zero word to address 0x6bb330 if the instruction pointer reaches 0x400b6
 
     havoc <address> <trigger>
 
-Sets the given memory address <address> to a random value when the given trigger <trigger> is reached. The function affects one byte (i.e., 8 bit).
+Sets the given memory address <address> to a random value when the given trigger <trigger> is reached. The function affects one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
 
 ##### Example
 Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `havoc 0x6bb330 @0x400b6e`
@@ -77,7 +102,7 @@ Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400
 Flips the <bit index>-th bit at the memory address <destination> when the given trigger <trigger> is reached.
 
 ##### Example
-Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0x400b4d: `bitflip 0 0x400b59 @0x400b4d`
+Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0x400b4d: `bitflip 0 0x400b59 @0x400b4d`. The address can also be given relative to a symbol: `&symbol+offset`.
 
 #### log
 
@@ -113,7 +138,7 @@ An example binary with embedded configuration can look like this:
     FAULT_CONFIG("TIMEOUT=3");
     FAULT_CONFIG("FAILEVERY=2");
     FAULT_CONFIG("COOLDOWN=100");
-    FAULT_ENTRY(main);
+    FAULT_CONFIG_ENTRY(main);
 
 The following configuration options are supported:
 
@@ -139,6 +164,6 @@ Additionally, `COOLDOWN=<instruction>` defines that after inducing a fault, it t
 
 A binary can define a timeout in seconds after which it is terminated: `TIMEOUT=<seconds>`. If the binary runs into the timeout, the exploit is considered to be unsuccessful. The default timeout is 30 seconds.
 To ensure reproducibility, the seed for the random function (used e.g. in `havoc`) can be fixed with `SEED=<seed>`. The default seed is `time(NULL)`.
-To disable ASLR for a binary, `NOASLR` can be used. 
+To disable ASLR for a binary, `NOASLR` can be used.
 To ensure that the instruction counter is deterministic, `FAULT_ENTRY(function)` allows providing a function at which the simulator start. 
 Typically, this will be `FAULT_ENTRY(main)` to start at `main`. 
