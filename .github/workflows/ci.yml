@@ -10,7 +10,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: env CC=musl-gcc make
       - run: make symmap
-      - run: ./simulator demos/bin/victim1.fault demos/bin/victim1 | grep Success
+      - run: DEBUG=1 ./simulator demos/bin/victim1.fault demos/bin/victim1 | grep Success
       - run: ./simulator demos/bin/victim2.fault demos/bin/victim2 | grep Success
       - run: ./simulator demos/bin/victim3.fault demos/bin/victim3 | grep Success
       - run: ./simulator demos/bin/victim4.fault demos/bin/victim4 | grep Success
