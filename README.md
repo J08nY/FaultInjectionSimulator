@@ -71,7 +71,7 @@ The following commands are supported:
 
     skip <bytes> <trigger>
 
-Skips the given number of bytes <bytes> in the instruction stream when the given trigger <trigger> is reached. This can also be negative to jump backwards. Note that this does not skip <bytes> instructions, as many instructions are larger than one byte.
+Skips the given number of bytes `<bytes>` in the instruction stream when the given trigger `<trigger>` is reached. This can also be negative to jump backwards. Note that this does not skip `<bytes>` instructions, as many instructions are larger than one byte.
 
 ##### Example
 Skip 1 byte when the instruction pointer is at 0x400b51: `skip 1 @0x400b51`
@@ -80,7 +80,7 @@ Skip 1 byte when the instruction pointer is at 0x400b51: `skip 1 @0x400b51`
 
     zero <address> <trigger>
 
-Sets the given memory address <address> to 0 when the given trigger <trigger> is reached. The function zeroes out one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
+Sets the given memory address `<address>` to 0 when the given trigger `<trigger>` is reached. The function zeroes out one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
 
 ##### Example
 Write a zero word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `zero 0x6bb330 @0x400b6e`
@@ -89,7 +89,7 @@ Write a zero word to address 0x6bb330 if the instruction pointer reaches 0x400b6
 
     havoc <address> <trigger>
 
-Sets the given memory address <address> to a random value when the given trigger <trigger> is reached. The function affects one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
+Sets the given memory address `<address>` to a random value when the given trigger `<trigger>` is reached. The function affects one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
 
 ##### Example
 Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `havoc 0x6bb330 @0x400b6e`
@@ -99,7 +99,7 @@ Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400
 
     bitflip <bit index> <destination> <trigger>
 
-Flips the <bit index>-th bit at the memory address <destination> when the given trigger <trigger> is reached.
+Flips the `<bit index>`-th bit at the memory address `<destination>` when the given trigger `<trigger>` is reached.
 
 ##### Example
 Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0x400b4d: `bitflip 0 0x400b59 @0x400b4d`. The address can also be given relative to a symbol: `&symbol+offset`.
@@ -126,28 +126,30 @@ To include a configuration, simply include the `faultconfig.h` header and insert
 
 An example binary with embedded configuration can look like this:
 
-    #include <stdio.h>
-    #include <faultconfig.h>
+```C
+#include <stdio.h>
+#include <faultconfig.h>
 
-    volatile int is_admin = 0;
+volatile int is_admin = 0;
 
-    int main() {
-        if(!is_admin) {
-            puts("Nope, you are not admin\n");
-            return 1;
-        } else {
-            puts("Success!\n");
-            return 0;
-        }
-
+int main() {
+    if(!is_admin) {
+        puts("Nope, you are not admin\n");
+        return 1;
+    } else {
+        puts("Success!\n");
+        return 0;
     }
 
-    FAULT_CONFIG("NOHAVOC");
-    FAULT_CONFIG("NOSKIP");
-    FAULT_CONFIG("TIMEOUT=3");
-    FAULT_CONFIG("FAILEVERY=2");
-    FAULT_CONFIG("COOLDOWN=100");
-    FAULT_CONFIG_ENTRY(main);
+}
+
+FAULT_CONFIG("NOHAVOC");
+FAULT_CONFIG("NOSKIP");
+FAULT_CONFIG("TIMEOUT=3");
+FAULT_CONFIG("FAILEVERY=2");
+FAULT_CONFIG("COOLDOWN=100");
+FAULT_CONFIG_ENTRY(main);
+```
 
 The following configuration options are supported:
 
