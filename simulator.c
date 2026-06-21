@@ -67,7 +67,7 @@ int add_command(Command* c, size_t line_nr) {
         ERROR(TAG_LINE "Command '%s' not allowed for this binary!\n", line_nr, command_name[c->type]);
         return 1;
     }
-    if(config.no_code_fault && (c->type & (BITFLIP | HAVOC | ZERO)) && c->destination >= config.code_start && c->destination < config.code_end) {
+    if(config.no_code_fault && (c->type & (BITFLIP | HAVOC | ZERO | SET)) && c->destination >= config.code_start && c->destination < config.code_end) {
         ERROR(TAG_LINE "Faults in .text section are not allowed!\n", line_nr);
         return 1;
     }
@@ -200,6 +200,10 @@ int parse_command(char* cmd, size_t line_nr) {
     } else if(!strcasecmp(command, command_name[LOG])) {
         c.type = LOG;
         char* type = strtok(NULL, DELIMITER);
+        if(!type) {
+            ERROR(TAG_LINE "Missing log type\n", line_nr);
+            return 1;
+        }
         if(!strcasecmp(type, "inscnt")) {
             c.log = LOG_INSTRUCTION;
         } else if(!strcasecmp(type, "rip")) {
@@ -230,6 +234,33 @@ int parse_command(char* cmd, size_t line_nr) {
         if(parse_position(strtok(NULL, DELIMITER), &c, line_nr)) {
             return 1;
         }
+    } else if(!strcasecmp(command, command_name[SET])) {
+        c.type = SET;
+        if(parse_destination(strtok(NULL, DELIMITER), &c, line_nr)) {
+            return 1;
+        }
+        char* val = strtok(NULL, DELIMITER);
+        if(!val || strlen(val) == 0) {
+            ERROR(TAG_LINE "No value given\n", line_nr);
+            return 1;
+        }
+        size_t hexlen = strlen(val);
+        if(hexlen % 2) {
+            ERROR(TAG_LINE "Value hex string must have an even number of digits (got %zu)\n", line_nr, hexlen);
+            return 1;
+        }
+        c.value_len = hexlen / 2;
+        if(c.value_len > 8) c.value_len = 8;
+        c.value = 0;
+        for(size_t i = 0; i < c.value_len; i++) {
+            unsigned int byte;
+            char pair[3] = {val[i*2], val[i*2+1], '\0'};
+            sscanf(pair, "%2x", &byte);
+            c.value |= (size_t)(byte & 0xff) << (i * 8);
+        }
+        if(parse_position(strtok(NULL, DELIMITER), &c, line_nr)) {
+            return 1;
+        }
     } else if(!strcasecmp(command, command_name[BITFLIP])) {
         c.type = BITFLIP;
         if(parse_index(strtok(NULL, DELIMITER), &c, line_nr)) {
@@ -255,6 +286,7 @@ int parse_script(char* file) {
     command_name[BITFLIP] = "bitflip";
     command_name[HAVOC] = "havoc";
     command_name[ZERO] = "zero";
+    command_name[SET] = "set";
 
     DEBUG("Parsing %s...\n", file);
     FILE* f = fopen(file, "r");
@@ -331,6 +363,7 @@ void parse_config(char* binary) {
             if(!strcmp(conf, "NOHAVOC")) config.fault_blacklist |= HAVOC;
             if(!strcmp(conf, "NOSKIP")) config.fault_blacklist |= SKIP;
             if(!strcmp(conf, "NOBITFLIP")) config.fault_blacklist |= BITFLIP;
+            if(!strcmp(conf, "NOSET")) config.fault_blacklist |= SET;
             if(!strcmp(conf, "NOLOG")) config.fault_blacklist |= LOG;
             if(!strcmp(conf, "NOASLR")) config.aslr = 0;
             if(!strcmp(conf, "NOLOGFAULT")) config.log_blacklist |= LOG_FAULT;
@@ -516,6 +549,14 @@ int ptrace_instruction_pointer(int pid) {
                 if(log_fault) printf("ZERO 0x%zx (RIP: 0x%zx, Instruction #%zd)\n", commands[i].destination, (size_t)regs.rip, instruction_counter);
                 long oldval = ptrace(PTRACE_PEEKDATA, pid, commands[i].destination, 0);
                 ptrace(PTRACE_POKEDATA, pid, commands[i].destination, oldval & ~0xff);
+            } else if(commands[i].type == SET) {
+                DEBUG("Set 0x%zx <- 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination, commands[i].value, commands[i].value_len, regs.rip);
+                if(log_fault) printf("SET 0x%zx = 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n", commands[i].destination, commands[i].value, commands[i].value_len, (size_t)regs.rip, instruction_counter);
+                long oldval = ptrace(PTRACE_PEEKDATA, pid, commands[i].destination, 0);
+                size_t mask = 0;
+                for(size_t b = 0; b < commands[i].value_len; b++)
+                    mask |= (size_t)0xff << (b * 8);
+                ptrace(PTRACE_POKEDATA, pid, commands[i].destination, (oldval & ~mask) | (commands[i].value & mask));
             } else if(commands[i].type == BITFLIP) {
                 DEBUG("Bitflip #%d -> 0x%zx @ 0x%zx\n", commands[i].index, commands[i].destination, regs.rip);
                 if(log_fault) printf("BITFLIP #%d -> 0x%zx (RIP: 0x%zx, Instruction #%zd)\n", (int)commands[i].index, commands[i].destination, (size_t)regs.rip, instruction_counter);

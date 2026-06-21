@@ -104,6 +104,15 @@ Flips the <bit index>-th bit at the memory address <destination> when the given 
 ##### Example
 Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0x400b4d: `bitflip 0 0x400b59 @0x400b4d`. The address can also be given relative to a symbol: `&symbol+offset`.
 
+#### set
+
+    set <address> <hexstring> <trigger>
+
+Sets the memory at <address> to the bytes encoded in <hexstring> when the given trigger <trigger> is reached. Writes up to 8 bytes in address order (first hex pair to <address>, next to <address+1>, etc.). The address can also be given relative to a symbol: `&symbol+offset`.
+
+##### Example
+Write bytes `0xde 0xad 0xbe 0xef` at address 0x6bb330 if the instruction pointer reaches 0x400b6e: `set 0x6bb330 deadbeef @0x400b6e`
+
 #### log
 
     log <log type>
@@ -144,7 +153,7 @@ The following configuration options are supported:
 
 ### Feature Blacklist
 
-Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOLOG`. The features `HAVOC`, `ZERO`, and `BITFLIP` can also be blocked only for the code using `NOCODEFAULT`. 
+Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOSET`, `NOLOG`. The features `HAVOC`, `ZERO`, `BITFLIP`, and `SET` can also be blocked only for the code using `NOCODEFAULT`. 
 
 ### Parameter Blacklist
 

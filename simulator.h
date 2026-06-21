@@ -13,6 +13,7 @@ typedef enum {
     LOG = 4,
     HAVOC = 8,
     ZERO = 16,
+    SET = 32,
     __FAULT_END__
 } fault_t;
 
@@ -40,6 +41,8 @@ typedef struct {
     };
     size_t index;
     size_t destination;
+    size_t value;
+    size_t value_len;
 } Command;
 
 typedef struct {
