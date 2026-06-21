@@ -285,13 +285,24 @@ int parse_script(char* file) {
 void parse_config(char* binary) {
     char config_cache[128];
     FILE* f;
+    struct stat bin_stat;
     snprintf(config_cache, sizeof(config_cache), "%s" CONFCACHE_EXT, binary);
 #ifdef CONFIG_CACHE
-    f = fopen(config_cache, "rb");
-    if(f) {
-        fread(&config, sizeof(config), 1, f);
-        fclose(f);
-        return;
+    if(!stat(binary, &bin_stat)) {
+        f = fopen(config_cache, "rb");
+        if(f) {
+            time_t cached_mtime;
+            off_t cached_size;
+            if(fread(&cached_mtime, sizeof(cached_mtime), 1, f) == 1 &&
+               fread(&cached_size, sizeof(cached_size), 1, f) == 1 &&
+               cached_mtime == bin_stat.st_mtime &&
+               cached_size == bin_stat.st_size) {
+                fread(&config, sizeof(config), 1, f);
+                fclose(f);
+                return;
+            }
+            fclose(f);
+        }
     }
 #endif
     f = fopen(binary, "rb");
@@ -344,10 +355,14 @@ void parse_config(char* binary) {
     fclose(f);
 
 #ifdef CONFIG_CACHE
-    f = fopen(config_cache, "wb");
-    if(f) {
-        fwrite(&config, sizeof(config), 1, f);
-        fclose(f);
+    if(!stat(binary, &bin_stat)) {
+        f = fopen(config_cache, "wb");
+        if(f) {
+            fwrite(&bin_stat.st_mtime, sizeof(bin_stat.st_mtime), 1, f);
+            fwrite(&bin_stat.st_size, sizeof(bin_stat.st_size), 1, f);
+            fwrite(&config, sizeof(config), 1, f);
+            fclose(f);
+        }
     }
 #endif
 }

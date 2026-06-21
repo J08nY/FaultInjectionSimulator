@@ -17,6 +17,7 @@ simulator: simulator.c
 demos: $(VICTIMBINS)
 
 demos/bin/%: demos/%.c
+	rm -f $@.confcache
 	$(CC) $(CFLAGS) -I./ -g -static -o $@ $<
 
 # Generate symmap files for demos
