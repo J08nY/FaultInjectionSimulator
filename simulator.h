@@ -3,7 +3,6 @@
 
 #define TAG_ERROR "\033[91m[ERROR]\033[0m "
 #define TAG_DEBUG "\033[94m[DEBUG]\033[0m "
-#define TAG_WARN  "\033[93m[WARN ]\033[0m "
 #define TAG_LINE  "\033[95mLine %zd:\033[0m "
 
 
@@ -31,14 +30,17 @@ typedef enum {
 
 typedef struct {
     fault_t type;
+
     union {
         position_t position;
         log_t log;
     };
+
     union {
         size_t rip;
         size_t instruction;
     };
+
     size_t index;
     size_t destination;
     size_t value;
@@ -65,7 +67,7 @@ typedef struct {
 
 #ifdef SYMMAP_SUPPORT
 typedef struct {
-    char* key;
+    char *key;
     size_t address;
 } MapEntry;
 #endif
