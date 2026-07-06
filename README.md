@@ -78,18 +78,18 @@ Skip 1 byte when the instruction pointer is at 0x400b51: `skip 1 @0x400b51`
 
 #### zero
 
-    zero <address> <trigger>
+    zero <address> [<bytes>] <trigger>
 
-Sets the given memory address `<address>` to 0 when the given trigger `<trigger>` is reached. The function zeroes out one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
+Sets the given memory address or register `<address>` to 0 when the given trigger `<trigger>` is reached. Without an explicit width, memory destinations zero one byte and registers zero their full native width. If `<bytes>` is provided, the command zeros that many low-order bytes. The address can also be given relative to a symbol: `&symbol+offset`, and registers can be written by name (for example `rax`, `rbx`, `rip`, or `rflags`).
 
 ##### Example
 Write a zero word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `zero 0x6bb330 @0x400b6e`
 
 #### havoc
 
-    havoc <address> <trigger>
+    havoc <address> [<bytes>] <trigger>
 
-Sets the given memory address `<address>` to a random value when the given trigger `<trigger>` is reached. The function affects one byte (i.e., 8 bit). The address can also be given relative to a symbol: `&symbol+offset`.
+Sets the given memory address or register `<address>` to random values when the given trigger `<trigger>` is reached. Without an explicit width, memory destinations randomize one byte and registers randomize their full native width. If `<bytes>` is provided, the command randomizes that many low-order bytes. The address can also be given relative to a symbol: `&symbol+offset`, and registers can be written by name.
 
 ##### Example
 Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400b6e: `havoc 0x6bb330 @0x400b6e`
@@ -99,7 +99,7 @@ Write a random word to address 0x6bb330 if the instruction pointer reaches 0x400
 
     bitflip <bit index> <destination> <trigger>
 
-Flips the `<bit index>`-th bit at the memory address `<destination>` when the given trigger `<trigger>` is reached.
+Flips the `<bit index>`-th bit at the memory address or register `<destination>` when the given trigger `<trigger>` is reached.
 
 ##### Example
 Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0x400b4d: `bitflip 0 0x400b59 @0x400b4d`. The address can also be given relative to a symbol: `&symbol+offset`.
@@ -108,16 +108,22 @@ Flips bit 0 at the memory location 0x400b59 if the instruction pointer reaches 0
 
     set <address> <hexstring> <trigger>
 
-Sets the memory at <address> to the bytes encoded in <hexstring> when the given trigger <trigger> is reached. Writes up to 8 bytes in address order (first hex pair to <address>, next to <address+1>, etc.). The address can also be given relative to a symbol: `&symbol+offset`.
+Sets the memory at `<address>` or the low bytes of a register to the bytes encoded in `<hexstring>` when the given trigger `<trigger>` is reached. Writes up to 8 bytes in address order (first hex pair to `<address>`, next to `<address+1>`, etc.). The address can also be given relative to a symbol: `&symbol+offset`, and registers can be written by name.
 
 ##### Example
 Write bytes `0xde 0xad 0xbe 0xef` at address 0x6bb330 if the instruction pointer reaches 0x400b6e: `set 0x6bb330 deadbeef @0x400b6e`
 
 #### log
 
-    log <log type>
+    log <log type> [<trigger>]
 
-Enables log output for certain events. Supported events are `rip` (prints the current instruction pointer for every instruction), `inscnt` (prints the current instruction counter for every instruction), and `fault` (prints the details of every successfully induced fault).
+Enable log output for certain events. Supported events are `inscnt` (prints the current instruction counter for every instruction), `fault` (prints the details of every successfully induced fault), and any register name such as `rax` or `rip`.
+
+Register logs can be given a trigger just like faults, for example `log rax #100` or `log rflags @0x400b51`. When a trigger is supplied, the register value is printed only when the trigger fires. If no trigger is supplied, the register value is printed at every instruction.
+
+#### Registers
+
+Register targets and logs currently use the x86-64 register names `rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi`, `rbp`, `rsp`, `r8` through `r15`, `rip`, and `rflags`. These names are case-insensitive.
 
 ## Configuration
 
@@ -155,7 +161,7 @@ The following configuration options are supported:
 
 ### Feature Blacklist
 
-Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOSET`, `NOLOG`. The features `HAVOC`, `ZERO`, `BITFLIP`, and `SET` can also be blocked only for the code using `NOCODEFAULT`. 
+Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOSET`, `NOLOG`. The features `HAVOC`, `ZERO`, `BITFLIP`, and `SET` can also be blocked only for the code using `NOCODEFAULT`. Register logging can be disabled with `NOLOGREGISTER`.
 
 ### Parameter Blacklist
 

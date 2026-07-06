@@ -1,5 +1,5 @@
-#ifndef _SIMULATOR_H_
-#define _SIMULATOR_H_
+#ifndef SIMULATOR_H
+#define SIMULATOR_H
 
 #define TAG_ERROR "\033[91m[ERROR]\033[0m "
 #define TAG_DEBUG "\033[94m[DEBUG]\033[0m "
@@ -13,8 +13,13 @@ typedef enum {
     HAVOC = 8,
     ZERO = 16,
     SET = 32,
-    __FAULT_END__
+    FAULT_END
 } fault_t;
+
+typedef enum {
+    TARGET_MEMORY = 1,
+    TARGET_REGISTER = 2
+} target_t;
 
 typedef enum {
     RIP = 1,
@@ -22,29 +27,52 @@ typedef enum {
 } position_t;
 
 typedef enum {
-    LOG_RIP = 1,
-    LOG_INSTRUCTION = 2,
-    LOG_FAULT = 4
+    LOG_INSTRUCTION = 1,
+    LOG_FAULT = 2,
+    LOG_REGISTER = 4
 } log_t;
+
+typedef enum {
+    REG_RAX = 0,
+    REG_RBX,
+    REG_RCX,
+    REG_RDX,
+    REG_RSI,
+    REG_RDI,
+    REG_RBP,
+    REG_RSP,
+    REG_R8,
+    REG_R9,
+    REG_R10,
+    REG_R11,
+    REG_R12,
+    REG_R13,
+    REG_R14,
+    REG_R15,
+    REG_RIP,
+    REG_RFLAGS,
+    REG_END
+} reg_id_t;
 
 
 typedef struct {
     fault_t type;
 
-    union {
-        position_t position;
-        log_t log;
-    };
+    log_t log;
+    position_t position;
 
     union {
         size_t rip;
         size_t instruction;
     };
 
+    target_t target;
+    reg_id_t reg;
     size_t index;
     size_t destination;
     size_t value;
     size_t value_len;
+    size_t width;
 } Command;
 
 typedef struct {
