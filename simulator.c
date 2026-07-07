@@ -318,9 +318,17 @@ int parse_destination(char *pos, Command *c, size_t line_nr) {
     }
     reg_id_t reg;
     if (resolve_register(pos, &reg) == 0) {
+        if (config.destination_blacklist & TARGET_REGISTER) {
+            ERROR(TAG_LINE "Register-based faulting not allowed for this binary!\n", line_nr);
+            return 1;
+        }
         c->target = TARGET_REGISTER;
         c->reg = reg;
         return 0;
+    }
+    if (config.destination_blacklist & TARGET_MEMORY) {
+        ERROR(TAG_LINE "Memory-based faulting not allowed for this binary!\n", line_nr);
+        return 1;
     }
     if (pos[0] == '&') {
 #ifdef SYMMAP_SUPPORT
@@ -590,6 +598,8 @@ void parse_config(char *binary) {
             if (!strcmp(conf, "BEFOREMAIN")) config.beforemain = 1;
             if (!strcmp(conf, "ENTRY")) config.entry = *(size_t *) (conf + 6);
             if (!strcmp(conf, "NOCODEFAULT")) config.no_code_fault = 1;
+            if (!strcmp(conf, "NOMEMFAULT")) config.destination_blacklist |= TARGET_MEMORY;
+            if (!strcmp(conf, "NOREGFAULT")) config.destination_blacklist |= TARGET_REGISTER;
             if (!strncmp(conf, "MINSKIP=", 8)) config.skip_min = atoi(conf + 8);
             if (!strncmp(conf, "MAXSKIP=", 8)) config.skip_max = atoi(conf + 8);
             if (!strncmp(conf, "TIMEOUT=", 8)) config.timeout = atoi(conf + 8);

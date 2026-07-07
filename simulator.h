@@ -79,6 +79,7 @@ typedef struct {
     size_t fault_blacklist;
     size_t position_blacklist;
     size_t log_blacklist;
+    size_t destination_blacklist;
     int no_code_fault;
     int skip_min;
     int skip_max;
