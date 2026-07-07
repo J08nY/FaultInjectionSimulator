@@ -180,11 +180,13 @@ For the `skip` command it is possible to restrict the range of skippable bytes. 
 
 It is possible to define a probability with with a fault will not be induced. `FAILEVERY=<faults>` defines that on average 1 out of <faults> faults fails. For example, with `FAULT_CONFIG("FAILEVERY=2");`, 50% of all faults are not induced. By default, all faults are successful.
 Additionally, `COOLDOWN=<instruction>` defines that after inducing a fault, it takes <instruction> instructions until another fault can be induced. By default, there is no cooldown.
+One can also define a maximum number of faults that can be induced with `MAXFAULTS=<faults>`. By default, there is no limit.
 
 ### Miscellaneous
 
-A binary can define a timeout in seconds after which it is terminated: `TIMEOUT=<seconds>`. If the binary runs into the timeout, the exploit is considered to be unsuccessful. The default timeout is 30 seconds.
+A binary can define a timeout in seconds after which it is terminated: `TIMEOUT=<seconds>`. If the binary runs into the timeout, the exploit is considered to be unsuccessful. The default timeout is 30 seconds. You can also disable the timeout by setting it to zero.
 To ensure reproducibility, the seed for the random function (used e.g. in `havoc`) can be fixed with `SEED=<seed>`. The default seed is `time(NULL)`.
 To disable ASLR for a binary, `NOASLR` can be used.
 To ensure that the instruction counter is deterministic, `FAULT_ENTRY(function)` allows providing a function at which the simulator start. 
 Typically, this will be `FAULT_ENTRY(main)` to start at `main`. 
+The simulator prints "Successfully exploited <binary>" if the binary returns 0, and "Failed to exploit <binary>" if it returns non-zero. This can be suppressed with `NOSUCCESS`. 

@@ -27,7 +27,8 @@ static Config config = {
     .skip_max = 15,
     .timeout = 30,
     .aslr = 1,
-    .beforemain = 0
+    .beforemain = 0,
+    .print_success = 1
 };
 
 static Command *commands = NULL;
@@ -554,6 +555,7 @@ void parse_config(char *binary) {
                 fread(&cached_size, sizeof(cached_size), 1, f) == 1 &&
                 cached_mtime == bin_stat.st_mtime &&
                 cached_size == bin_stat.st_size) {
+                DEBUG("Using cached config for '%s'\n", binary);
                 fread(&config, sizeof(config), 1, f);
                 fclose(f);
                 return;
@@ -601,6 +603,7 @@ void parse_config(char *binary) {
             if (!strcmp(conf, "NOCODEFAULT")) config.no_code_fault = 1;
             if (!strcmp(conf, "NOMEMFAULT")) config.destination_blacklist |= TARGET_MEMORY;
             if (!strcmp(conf, "NOREGFAULT")) config.destination_blacklist |= TARGET_REGISTER;
+            if (!strcmp(conf, "NOSUCCESS")) config.print_success = 0;
             if (!strncmp(conf, "MINSKIP=", 8)) config.skip_min = atoi(conf + 8);
             if (!strncmp(conf, "MAXSKIP=", 8)) config.skip_max = atoi(conf + 8);
             if (!strncmp(conf, "TIMEOUT=", 8)) config.timeout = atoi(conf + 8);
@@ -743,7 +746,7 @@ int ptrace_instruction_pointer(int pid) {
     }
 
     for (i = 0; i < commands_count; i++) {
-        if (command_matches(&commands[i], (size_t) regs.rip, instruction_counter)) {
+        if (commands[i].type != LOG && command_matches(&commands[i], (size_t) regs.rip, instruction_counter)) {
             if (fault_cooldown) {
                 DEBUG("Cooldown - skipping fault '%s'\n", command_name[commands[i].type]);
                 if (log_fault)
@@ -761,7 +764,7 @@ int ptrace_instruction_pointer(int pid) {
                 }
             }
 
-            if (faults >= config.max_faults) {
+            if (config.max_faults > 0 && faults >= config.max_faults) {
                 DEBUG("Max faults reached - skipping fault '%s'\n", command_name[commands[i].type]);
                 if (log_fault)
                     printf("Cannot induce fault '%s' - max faults reached\n", command_name[commands[i].type]);
@@ -885,7 +888,7 @@ int ptrace_instruction_pointer(int pid) {
 
     instruction_counter++;
 
-    if ((instruction_counter % 1000) == 0 && (time(NULL) - start_time > config.timeout)) {
+    if (config.timeout != 0 && (instruction_counter % 1000) == 0 && (time(NULL) - start_time > config.timeout)) {
         ERROR("Timeout of %zd seconds reached\n", config.timeout);
         return 1;
     }
@@ -993,6 +996,7 @@ int main(int argc, char **argv, char **envp) {
         }
         if (!config.aslr) {
             // disable aslr
+            DEBUG("Disabling ASLR\n");
             personality(ADDR_NO_RANDOMIZE);
         }
 
@@ -1025,10 +1029,12 @@ int main(int argc, char **argv, char **envp) {
         free(line_map);
 #endif
 
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-            printf("\n\033[92mSuccessfully exploited %s!\033[0m\n", program);
-        } else {
-            printf("\n\033[91mFailed to exploit %s!\033[0m\n", program);
+        if (config.print_success) {
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                printf("\n\033[92mSuccessfully exploited %s!\033[0m\n", program);
+            } else {
+                printf("\n\033[91mFailed to exploit %s!\033[0m\n", program);
+            }
         }
     }
 

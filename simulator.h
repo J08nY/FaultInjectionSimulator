@@ -93,6 +93,7 @@ typedef struct {
     size_t entry;
     size_t code_start;
     size_t code_end;
+    int print_success;
 } Config;
 
 #ifdef SYMMAP_SUPPORT
