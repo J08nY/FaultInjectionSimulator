@@ -87,6 +87,7 @@ typedef struct {
     size_t fail_every;
     int seed;
     size_t cooldown;
+    size_t max_faults;
     int aslr;
     int beforemain;
     size_t entry;

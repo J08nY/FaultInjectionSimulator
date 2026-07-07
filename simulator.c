@@ -37,6 +37,7 @@ static const char *command_name[FAULT_END];
 
 static size_t instruction_counter = 0;
 static size_t fault_cooldown = 0;
+static size_t faults = 0;
 
 static size_t start_time;
 static int debug_level = 0;
@@ -606,6 +607,7 @@ void parse_config(char *binary) {
             if (!strncmp(conf, "FAILEVERY=", 10)) config.fail_every = atoi(conf + 10);
             if (!strncmp(conf, "SEED=", 5)) config.seed = atoi(conf + 5);
             if (!strncmp(conf, "COOLDOWN=", 9)) config.cooldown = strtoull(conf + 9, NULL, 0);
+            if (!strncmp(conf, "MAXFAULTS=", 10)) config.max_faults = strtoull(conf + 10, NULL, 0);
 
             DEBUG("Config: %s\n", conf);
         }
@@ -758,6 +760,15 @@ int ptrace_instruction_pointer(int pid) {
                     continue;
                 }
             }
+
+            if (faults >= config.max_faults) {
+                DEBUG("Max faults reached - skipping fault '%s'\n", command_name[commands[i].type]);
+                if (log_fault)
+                    printf("Cannot induce fault '%s' - max faults reached\n", command_name[commands[i].type]);
+                continue;
+            }
+
+            faults++;
 
             if (commands[i].type == SKIP) {
                 DEBUG("Skip %d @ 0x%zx\n", commands[i].index, regs.rip);

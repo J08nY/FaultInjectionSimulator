@@ -161,11 +161,15 @@ The following configuration options are supported:
 
 ### Feature Blacklist
 
-Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOSET`, `NOLOG`. The features `HAVOC`, `ZERO`, `BITFLIP`, and `SET` can also be blocked only for the code using `NOCODEFAULT`. Register logging can be disabled with `NOLOGREGISTER`.
+Any of the supported commands for fault scripts can be disabled for a binary. Blacklisting a feature is done with the options `NOSKIP`, `NOHAVOC`, `NOZERO`, `NOBITFLIP`, `NOSET`, `NOLOG`. The features `HAVOC`, `ZERO`, `BITFLIP`, and `SET` can also be blocked only for the code using `NOCODEFAULT`.
+
+### Destination Blacklist
+
+For the `havoc`, `zero`, `bitflip`, and `set` commands it is possible to blacklist certain destinations. The following destinations can be blacklisted: `NOREGFAULT`. It is also possible to blacklist memory addresses with the option: `NOMEMORYFAULT`.
 
 ### Parameter Blacklist
 
-For the `log` command it is also possible to blacklist only certain log types: `NOLOGFAULT`, `NOLOGRIP`, `NOLOGINSTRUCTION`.
+For the `log` command it is also possible to blacklist only certain log types: `NOLOGFAULT`, `NOLOGREGISTER`, `NOLOGINSTRUCTION`.
 It is also possible to blacklist triggers: `NORIPTRIGGER`, `NOINSTRUCTIONTRIGGER`.
 
 ### Parameter Ranges
