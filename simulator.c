@@ -942,7 +942,7 @@ int find_section(char *binary, char *section, size_t *start, size_t *end) {
 }
 
 // ------------------------------------------------------------------------------------------------
-int main(int argc, char **argv, char **envp) {
+int main(int argc, char **argv) {
     pid_t pid;
     int status;
 
@@ -1000,7 +1000,10 @@ int main(int argc, char **argv, char **envp) {
             personality(ADDR_NO_RANDOMIZE);
         }
 
-        if (execve(program, child_args, envp) == -1) {
+        char *env[] = { NULL };
+
+        // Drop env from target
+        if (execve(program, child_args, env) == -1) {
             ERROR("Failed to start binary '%s'\n", program);
             return -1;
         }
