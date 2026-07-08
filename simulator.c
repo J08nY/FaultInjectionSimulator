@@ -965,7 +965,6 @@ int main(int argc, char **argv) {
         exit(-1);
     }
 
-    config.seed = time(NULL);
     char *program = argv[2];
     parse_config(program);
 
@@ -989,7 +988,12 @@ int main(int argc, char **argv) {
     DEBUG("Loaded %d commands\n", commands_count);
     char **child_args = (char **) &argv[2];
 
-    srand(config.seed);
+    if (config.seed) {
+        srand(config.seed);
+    } else {
+        srand(time(NULL));
+    }
+
 
     pid = fork();
     if (pid == -1) {
