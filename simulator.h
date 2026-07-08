@@ -1,11 +1,6 @@
 #ifndef SIMULATOR_H
 #define SIMULATOR_H
 
-#define TAG_ERROR "\033[91m[ERROR]\033[0m "
-#define TAG_DEBUG "\033[94m[DEBUG]\033[0m "
-#define TAG_LINE  "\033[95mLine %zd:\033[0m "
-
-
 typedef enum {
     SKIP = 1,
     BITFLIP = 2,
@@ -103,9 +98,13 @@ typedef struct {
 } MapEntry;
 #endif
 
+
+#define TAG_ERROR "\033[91m[ERROR]\033[0m "
+#define TAG_DEBUG "\033[94m[DEBUG]\033[0m "
+#define TAG_LINE  "\033[95mLine %zd:\033[0m "
+
 #define ERROR(...) tagged_printf(TAG_ERROR, 0, __VA_ARGS__)
 #define DEBUG(...) tagged_printf(TAG_DEBUG, 1, __VA_ARGS__)
-
 
 #define DELIMITER " \t\r\n"
 #define SYMMAP_EXT ".symmap"

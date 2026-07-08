@@ -80,9 +80,17 @@ void tagged_printf(const char *tag, int level, const char *format, ...) {
     fprintf(stderr, "%s", tag);
     va_start(args, format);
     vfprintf(stderr, format, args);
+    fflush(stderr);
     va_end(args);
 }
 
+void print(const char *format, ...) {
+	va_list args;
+	va_start(args, format);
+	vfprintf(stdout, format, args);
+	fflush(stdout);
+	va_end(args);
+}
 
 // ------------------------------------------------------------------------------------------------
 int add_command(Command *c, size_t line_nr) {
@@ -735,12 +743,12 @@ int ptrace_instruction_pointer(int pid) {
     for (i = 0; i < commands_count; i++) {
         if (commands[i].type == LOG) {
             if (commands[i].log == LOG_INSTRUCTION) {
-                printf("Instruction #%zd\n", instruction_counter);
+                print("Instruction #%zd\n", instruction_counter);
             } else if (commands[i].log == LOG_FAULT) {
                 log_fault = 1;
             } else if (commands[i].log == LOG_REGISTER) {
                 if (!commands[i].position || command_matches(&commands[i], (size_t) regs.rip, instruction_counter))
-                    printf("%s: 0x%llx\n", register_name(commands[i].reg), register_read(&regs, commands[i].reg));
+                    print("%s: 0x%llx\n", register_name(commands[i].reg), register_read(&regs, commands[i].reg));
             }
         }
     }
@@ -750,7 +758,7 @@ int ptrace_instruction_pointer(int pid) {
             if (fault_cooldown) {
                 DEBUG("Cooldown - skipping fault '%s'\n", command_name[commands[i].type]);
                 if (log_fault)
-                    printf("Cannot induce fault '%s' - last fault was too recent\n",
+                    print("Cannot induce fault '%s' - last fault was too recent\n",
                            command_name[commands[i].type]);
                 continue;
             }
@@ -767,7 +775,7 @@ int ptrace_instruction_pointer(int pid) {
             if (config.max_faults > 0 && faults >= config.max_faults) {
                 DEBUG("Max faults reached - skipping fault '%s'\n", command_name[commands[i].type]);
                 if (log_fault)
-                    printf("Cannot induce fault '%s' - max faults reached\n", command_name[commands[i].type]);
+                    print("Cannot induce fault '%s' - max faults reached\n", command_name[commands[i].type]);
                 continue;
             }
 
@@ -776,7 +784,7 @@ int ptrace_instruction_pointer(int pid) {
             if (commands[i].type == SKIP) {
                 DEBUG("Skip %d @ 0x%zx\n", commands[i].index, regs.rip);
                 if (log_fault)
-                    printf("SKIP %d (RIP: 0x%zx, Instruction #%zd)\n", (int) commands[i].index,
+                    print("SKIP %d (RIP: 0x%zx, Instruction #%zd)\n", (int) commands[i].index,
                            (size_t) regs.rip, instruction_counter);
                 regs.rip += commands[i].index;
                 regs_dirty = 1;
@@ -792,16 +800,16 @@ int ptrace_instruction_pointer(int pid) {
                         newval = (newval & ~((unsigned long long) 0xff << (b * 8))) | (byte << (b * 8));
                     }
                     if (log_fault)
-                        printf("HAVOC %s (%zu bytes) -> 0x%llx (RIP: 0x%zx, Instruction #%zd)\n",
-                               register_name(commands[i].reg), width, newval & mask, (size_t) regs.rip,
-                               instruction_counter);
+                        print("HAVOC %s (%zu bytes) -> 0x%llx (RIP: 0x%zx, Instruction #%zd)\n",
+                              register_name(commands[i].reg), width, newval & mask, (size_t) regs.rip,
+                              instruction_counter);
                     register_write(&regs, commands[i].reg, (oldval & ~mask) | (newval & mask));
                     regs_dirty = 1;
                 } else {
                     DEBUG("Havoc 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination, width, regs.rip);
                     if (log_fault)
-                        printf("HAVOC 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
-                               commands[i].destination, width, (size_t) regs.rip, instruction_counter);
+                        print("HAVOC 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
+                              commands[i].destination, width, (size_t) regs.rip, instruction_counter);
                     for (size_t b = 0; b < width; b++) {
                         if (poke_byte(pid, commands[i].destination + b, (unsigned char) (rand() & 0xff)))
                             return 1;
@@ -812,16 +820,16 @@ int ptrace_instruction_pointer(int pid) {
                 if (commands[i].target == TARGET_REGISTER) {
                     DEBUG("Zero %s (%zu bytes) @ 0x%zx\n", register_name(commands[i].reg), width, regs.rip);
                     if (log_fault)
-                        printf("ZERO %s (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
-                               register_name(commands[i].reg), width, (size_t) regs.rip, instruction_counter);
+                        print("ZERO %s (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
+                              register_name(commands[i].reg), width, (size_t) regs.rip, instruction_counter);
                     unsigned long long val = register_read(&regs, commands[i].reg);
                     register_write(&regs, commands[i].reg, val & ~width_mask(width));
                     regs_dirty = 1;
                 } else {
                     DEBUG("Zero 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination, width, regs.rip);
                     if (log_fault)
-                        printf("ZERO 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
-                               commands[i].destination, width, (size_t) regs.rip, instruction_counter);
+                        print("ZERO 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
+                              commands[i].destination, width, (size_t) regs.rip, instruction_counter);
                     for (size_t b = 0; b < width; b++) {
                         if (poke_byte(pid, commands[i].destination + b, 0)) return 1;
                     }
@@ -834,8 +842,8 @@ int ptrace_instruction_pointer(int pid) {
                     DEBUG("Set %s <- 0x%zx (%zu bytes) @ 0x%zx\n", register_name(commands[i].reg),
                           commands[i].value, commands[i].value_len, regs.rip);
                     if (log_fault)
-                        printf("SET %s = 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
-                               register_name(commands[i].reg), commands[i].value, commands[i].value_len,
+                        print("SET %s = 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
+                              register_name(commands[i].reg), commands[i].value, commands[i].value_len,
                                (size_t) regs.rip, instruction_counter);
                     unsigned long long val = register_read(&regs, commands[i].reg);
                     register_write(&regs, commands[i].reg,
@@ -846,8 +854,8 @@ int ptrace_instruction_pointer(int pid) {
                     DEBUG("Set 0x%zx <- 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination, commands[i].value,
                           commands[i].value_len, regs.rip);
                     if (log_fault)
-                        printf("SET 0x%zx = 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
-                               commands[i].destination, commands[i].value, commands[i].value_len,
+                        print("SET 0x%zx = 0x%zx (%zu bytes) (RIP: 0x%zx, Instruction #%zd)\n",
+                              commands[i].destination, commands[i].value, commands[i].value_len,
                                (size_t) regs.rip, instruction_counter);
                     long oldval = ptrace(PTRACE_PEEKDATA, pid, commands[i].destination, 0);
                     ptrace(PTRACE_POKEDATA, pid, commands[i].destination,
@@ -857,18 +865,18 @@ int ptrace_instruction_pointer(int pid) {
                 if (commands[i].target == TARGET_REGISTER) {
                     DEBUG("Bitflip #%d -> %s @ 0x%zx\n", commands[i].index, register_name(commands[i].reg), regs.rip);
                     if (log_fault)
-                        printf("BITFLIP #%d -> %s (RIP: 0x%zx, Instruction #%zd)\n",
-                               (int) commands[i].index, register_name(commands[i].reg), (size_t) regs.rip,
-                               instruction_counter);
+                        print("BITFLIP #%d -> %s (RIP: 0x%zx, Instruction #%zd)\n",
+                              (int) commands[i].index, register_name(commands[i].reg), (size_t) regs.rip,
+                              instruction_counter);
                     register_write(&regs, commands[i].reg,
                                    register_read(&regs, commands[i].reg) ^ (1ull << commands[i].index));
                     regs_dirty = 1;
                 } else {
                     DEBUG("Bitflip #%d -> 0x%zx @ 0x%zx\n", commands[i].index, commands[i].destination, regs.rip);
                     if (log_fault)
-                        printf("BITFLIP #%d -> 0x%zx (RIP: 0x%zx, Instruction #%zd)\n",
-                               (int) commands[i].index, commands[i].destination, (size_t) regs.rip,
-                               instruction_counter);
+                        print("BITFLIP #%d -> 0x%zx (RIP: 0x%zx, Instruction #%zd)\n",
+                              (int) commands[i].index, commands[i].destination, (size_t) regs.rip,
+                              instruction_counter);
                     unsigned long long val = (unsigned long long) ptrace(
                         PTRACE_PEEKDATA, pid, commands[i].destination, 0);
                     val ^= 1ull << commands[i].index;
