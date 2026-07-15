@@ -1016,7 +1016,7 @@ int main(int argc, char **argv) {
 
         // Drop env from target
         if (execve(program, child_args, env) == -1) {
-            ERROR("Failed to start binary '%s'\n", program);
+            ERROR("Failed to start binary '%s' = %d\n", program, errno);
             return -1;
         }
     } else {
