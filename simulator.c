@@ -43,6 +43,15 @@ static size_t faults = 0;
 static size_t start_time;
 static int debug_level = 0;
 
+// Software breakpoint support for fast RIP-triggered execution
+typedef struct {
+    size_t addr;
+    long orig_word;
+} SoftBreakpoint;
+
+static SoftBreakpoint *bp_list = NULL;
+static int bp_count = 0;
+
 static const char *register_name(reg_id_t reg);
 
 static int resolve_register(const char *name, reg_id_t *reg);
@@ -950,22 +959,339 @@ int find_section(char *binary, char *section, size_t *start, size_t *end) {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Software breakpoint fast path: when all triggers are RIP-based, use INT3
+// breakpoints instead of single-stepping to run the target at native speed.
+// ------------------------------------------------------------------------------------------------
+
+static int can_use_breakpoints(void) {
+    if (commands_count == 0) return 0;
+    if (config.cooldown) return 0;
+    for (int i = 0; i < commands_count; i++) {
+        if (commands[i].type == LOG) {
+            if (commands[i].log == LOG_INSTRUCTION) return 0;
+            if (commands[i].log == LOG_REGISTER && !commands[i].position) return 0;
+        } else {
+            if (commands[i].position == INSTRUCTION) return 0;
+        }
+    }
+    return 1;
+}
+
+// ------------------------------------------------------------------------------------------------
+static int install_breakpoint(int pid, size_t addr) {
+    // Skip if already installed at this address
+    for (int i = 0; i < bp_count; i++) {
+        if (bp_list[i].addr == addr) return 0;
+    }
+    errno = 0;
+    long word = ptrace(PTRACE_PEEKDATA, pid, (void *)addr, 0);
+    if (word == -1 && errno) {
+        ERROR("Failed to read memory at 0x%zx for breakpoint: %s\n", addr, strerror(errno));
+        return 1;
+    }
+    bp_list = realloc(bp_list, (bp_count + 1) * sizeof(SoftBreakpoint));
+    bp_list[bp_count].addr = addr;
+    bp_list[bp_count].orig_word = word;
+    bp_count++;
+    long bp_word = (word & ~0xffL) | 0xCCL;
+    if (ptrace(PTRACE_POKEDATA, pid, (void *)addr, (void *)bp_word)) {
+        ERROR("Failed to write breakpoint at 0x%zx: %s\n", addr, strerror(errno));
+        return 1;
+    }
+    DEBUG("Installed breakpoint at 0x%zx\n", addr);
+    return 0;
+}
+
+// ------------------------------------------------------------------------------------------------
+static SoftBreakpoint *find_breakpoint(size_t addr) {
+    for (int i = 0; i < bp_count; i++) {
+        if (bp_list[i].addr == addr) return &bp_list[i];
+    }
+    return NULL;
+}
+
+// ------------------------------------------------------------------------------------------------
+static void run_with_breakpoints(int pid, int *out_status) {
+    struct user_regs_struct regs;
+    int status = 0;
+    int need_entry = (config.entry && !config.beforemain);
+    int started_bp = !need_entry;
+
+    // Install breakpoint at entry point if needed
+    if (need_entry) {
+        if (install_breakpoint(pid, config.entry)) { *out_status = 0; return; }
+    }
+
+    // Install breakpoints at all RIP trigger addresses
+    for (int i = 0; i < commands_count; i++) {
+        if (commands[i].position == RIP) {
+            if (install_breakpoint(pid, commands[i].rip)) { *out_status = 0; return; }
+        }
+    }
+
+    if (bp_count == 0) {
+        ptrace(PTRACE_CONT, pid, 0, 0);
+        waitpid(pid, out_status, 0);
+        return;
+    }
+
+    DEBUG("Breakpoint mode: %d breakpoint(s) installed\n", bp_count);
+
+    // Check if log_fault is enabled
+    int log_fault = 0;
+    for (int i = 0; i < commands_count; i++) {
+        if (commands[i].type == LOG && commands[i].log == LOG_FAULT) {
+            log_fault = 1;
+            break;
+        }
+    }
+
+    // Main breakpoint loop
+    while (1) {
+        if (ptrace(PTRACE_CONT, pid, 0, 0)) {
+            ERROR("PTRACE_CONT failed: %s\n", strerror(errno));
+            break;
+        }
+        waitpid(pid, &status, 0);
+
+        if (!WIFSTOPPED(status)) break;
+        if (WSTOPSIG(status) != SIGTRAP) break;
+
+        if (ptrace(PTRACE_GETREGS, pid, NULL, (void *)&regs)) {
+            ERROR("Error fetching registers: %s\n", strerror(errno));
+            break;
+        }
+
+        // INT3 advances RIP by 1; the real breakpoint address is rip - 1
+        size_t hit_addr = (size_t)regs.rip - 1;
+        SoftBreakpoint *bp = find_breakpoint(hit_addr);
+        if (!bp) continue; // Not our breakpoint
+
+        // Fix RIP to point at the original instruction
+        regs.rip = hit_addr;
+
+        // Restore original instruction byte
+        if (ptrace(PTRACE_POKEDATA, pid, (void *)bp->addr, (void *)bp->orig_word)) {
+            ERROR("Failed to restore byte at 0x%zx\n", bp->addr);
+            break;
+        }
+
+        // Check if we've reached the entry point
+        if (!started_bp && hit_addr == config.entry) {
+            started_bp = 1;
+            DEBUG("Breakpoint mode: entry point reached at 0x%zx\n", config.entry);
+        }
+
+        if (started_bp) {
+            // Process LOG_REGISTER commands with matching trigger
+            for (int i = 0; i < commands_count; i++) {
+                if (commands[i].type == LOG && commands[i].log == LOG_REGISTER &&
+                    commands[i].position == RIP && commands[i].rip == hit_addr) {
+                    print("%s: 0x%llx\n", register_name(commands[i].reg),
+                          register_read(&regs, commands[i].reg));
+                }
+            }
+
+            // Process fault commands matching this address
+            for (int i = 0; i < commands_count; i++) {
+                if (commands[i].type == LOG) continue;
+                if (commands[i].position != RIP || commands[i].rip != hit_addr) continue;
+
+                if (config.fail_every > 0) {
+                    if ((rand() % config.fail_every) == 0) {
+                        DEBUG("Command '%s' randomly failed\n", command_name[commands[i].type]);
+                        continue;
+                    }
+                }
+
+                if (config.max_faults > 0 && faults >= config.max_faults) {
+                    DEBUG("Max faults reached - skipping fault '%s'\n",
+                          command_name[commands[i].type]);
+                    if (log_fault)
+                        print("Cannot induce fault '%s' - max faults reached\n",
+                               command_name[commands[i].type]);
+                    continue;
+                }
+
+                faults++;
+
+                if (commands[i].type == SKIP) {
+                    DEBUG("Skip %d @ 0x%zx\n", (int)commands[i].index, (size_t)regs.rip);
+                    if (log_fault)
+                        print("SKIP %d (RIP: 0x%zx)\n", (int)commands[i].index,
+                               (size_t)regs.rip);
+                    regs.rip += commands[i].index;
+                } else if (commands[i].type == HAVOC) {
+                    size_t width = effective_width(&commands[i]);
+                    if (commands[i].target == TARGET_REGISTER) {
+                        DEBUG("Havoc %s (%zu bytes) @ 0x%zx\n", register_name(commands[i].reg),
+                              width, (size_t)regs.rip);
+                        unsigned long long oldval = register_read(&regs, commands[i].reg);
+                        unsigned long long newval = oldval;
+                        size_t mask = width_mask(width);
+                        for (size_t b = 0; b < width; b++) {
+                            unsigned long long byte = (unsigned long long)(rand() & 0xff);
+                            newval = (newval & ~((unsigned long long)0xff << (b * 8))) |
+                                     (byte << (b * 8));
+                        }
+                        if (log_fault)
+                            print("HAVOC %s (%zu bytes) -> 0x%llx (RIP: 0x%zx)\n",
+                                  register_name(commands[i].reg), width, newval & mask,
+                                  (size_t)regs.rip);
+                        register_write(&regs, commands[i].reg, (oldval & ~mask) | (newval & mask));
+                    } else {
+                        DEBUG("Havoc 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination,
+                              width, (size_t)regs.rip);
+                        if (log_fault)
+                            print("HAVOC 0x%zx (%zu bytes) (RIP: 0x%zx)\n",
+                                  commands[i].destination, width, (size_t)regs.rip);
+                        for (size_t b = 0; b < width; b++) {
+                            if (poke_byte(pid, commands[i].destination + b,
+                                         (unsigned char)(rand() & 0xff))) {
+                                *out_status = status;
+                                return;
+                            }
+                        }
+                    }
+                } else if (commands[i].type == ZERO) {
+                    size_t width = effective_width(&commands[i]);
+                    if (commands[i].target == TARGET_REGISTER) {
+                        DEBUG("Zero %s (%zu bytes) @ 0x%zx\n", register_name(commands[i].reg),
+                              width, (size_t)regs.rip);
+                        if (log_fault)
+                            print("ZERO %s (%zu bytes) (RIP: 0x%zx)\n",
+                                  register_name(commands[i].reg), width, (size_t)regs.rip);
+                        unsigned long long val = register_read(&regs, commands[i].reg);
+                        register_write(&regs, commands[i].reg, val & ~width_mask(width));
+                    } else {
+                        DEBUG("Zero 0x%zx (%zu bytes) @ 0x%zx\n", commands[i].destination,
+                              width, (size_t)regs.rip);
+                        if (log_fault)
+                            print("ZERO 0x%zx (%zu bytes) (RIP: 0x%zx)\n",
+                                  commands[i].destination, width, (size_t)regs.rip);
+                        for (size_t b = 0; b < width; b++) {
+                            if (poke_byte(pid, commands[i].destination + b, 0)) {
+                                *out_status = status;
+                                return;
+                            }
+                        }
+                    }
+                } else if (commands[i].type == SET) {
+                    size_t mask = 0;
+                    for (size_t b = 0; b < commands[i].value_len; b++)
+                        mask |= (size_t)0xff << (b * 8);
+                    if (commands[i].target == TARGET_REGISTER) {
+                        DEBUG("Set %s <- 0x%zx (%zu bytes) @ 0x%zx\n",
+                              register_name(commands[i].reg), commands[i].value,
+                              commands[i].value_len, (size_t)regs.rip);
+                        if (log_fault)
+                            print("SET %s = 0x%zx (%zu bytes) (RIP: 0x%zx)\n",
+                                  register_name(commands[i].reg), commands[i].value,
+                                  commands[i].value_len, (size_t)regs.rip);
+                        unsigned long long val = register_read(&regs, commands[i].reg);
+                        register_write(&regs, commands[i].reg,
+                                       (val & ~((unsigned long long)mask)) |
+                                       ((unsigned long long)commands[i].value &
+                                        (unsigned long long)mask));
+                    } else {
+                        DEBUG("Set 0x%zx <- 0x%zx (%zu bytes) @ 0x%zx\n",
+                              commands[i].destination, commands[i].value,
+                              commands[i].value_len, (size_t)regs.rip);
+                        if (log_fault)
+                            print("SET 0x%zx = 0x%zx (%zu bytes) (RIP: 0x%zx)\n",
+                                  commands[i].destination, commands[i].value,
+                                  commands[i].value_len, (size_t)regs.rip);
+                        long oldval = ptrace(PTRACE_PEEKDATA, pid, commands[i].destination, 0);
+                        ptrace(PTRACE_POKEDATA, pid, commands[i].destination,
+                               (oldval & ~mask) | (commands[i].value & mask));
+                    }
+                } else if (commands[i].type == BITFLIP) {
+                    if (commands[i].target == TARGET_REGISTER) {
+                        DEBUG("Bitflip #%d -> %s @ 0x%zx\n", (int)commands[i].index,
+                              register_name(commands[i].reg), (size_t)regs.rip);
+                        if (log_fault)
+                            print("BITFLIP #%d -> %s (RIP: 0x%zx)\n",
+                                  (int)commands[i].index, register_name(commands[i].reg),
+                                  (size_t)regs.rip);
+                        register_write(&regs, commands[i].reg,
+                                       register_read(&regs, commands[i].reg) ^
+                                       (1ull << commands[i].index));
+                    } else {
+                        DEBUG("Bitflip #%d -> 0x%zx @ 0x%zx\n", (int)commands[i].index,
+                              commands[i].destination, (size_t)regs.rip);
+                        if (log_fault)
+                            print("BITFLIP #%d -> 0x%zx (RIP: 0x%zx)\n",
+                                  (int)commands[i].index, commands[i].destination,
+                                  (size_t)regs.rip);
+                        unsigned long long val = (unsigned long long)ptrace(
+                            PTRACE_PEEKDATA, pid, commands[i].destination, 0);
+                        val ^= 1ull << commands[i].index;
+                        ptrace(PTRACE_POKEDATA, pid, commands[i].destination, (long)val);
+                    }
+                }
+            }
+        }
+
+        // Write modified registers (always needed to fix up RIP from INT3)
+        if (ptrace(PTRACE_SETREGS, pid, NULL, &regs)) {
+            ERROR("Error writing registers: %s\n", strerror(errno));
+            break;
+        }
+
+        // If RIP was not modified by a fault, execute the original instruction
+        if ((size_t)regs.rip == hit_addr) {
+            status = singlestep(pid);
+            if (!WIFSTOPPED(status)) break;
+        }
+
+        // Re-insert breakpoint (re-read memory in case it was modified)
+        errno = 0;
+        long word = ptrace(PTRACE_PEEKDATA, pid, (void *)bp->addr, 0);
+        if (word == -1 && errno) {
+            ERROR("Failed to re-read at 0x%zx\n", bp->addr);
+            break;
+        }
+        bp->orig_word = word;
+        long bp_word = (word & ~0xffL) | 0xCCL;
+        if (ptrace(PTRACE_POKEDATA, pid, (void *)bp->addr, (void *)bp_word)) {
+            ERROR("Failed to re-insert breakpoint at 0x%zx\n", bp->addr);
+            break;
+        }
+
+        // Timeout check (wall-clock based)
+        if (config.timeout != 0 && (time(NULL) - start_time > config.timeout)) {
+            ERROR("Timeout of %d seconds reached\n", config.timeout);
+            break;
+        }
+    }
+
+    *out_status = status;
+}
+
+// ------------------------------------------------------------------------------------------------
 int main(int argc, char **argv) {
     pid_t pid;
     int status;
+    int opt_fast = 0;
+    int arg_idx = 1;
 
     char *debug_level_str = getenv("DEBUG");
     if (debug_level_str) {
         debug_level = atoi(debug_level_str);
     }
 
+    if (argc > 1 && !strcmp(argv[1], "--fast")) {
+        opt_fast = 1;
+        arg_idx = 2;
+    }
 
-    if (argc < 3) {
-        ERROR("Usage: %s <fault script> <binary> [<arg0> <arg1> ...]\n", argv[0]);
+    if (argc - arg_idx < 2) {
+        ERROR("Usage: %s [--fast] <fault script> <binary> [<arg0> <arg1> ...]\n", argv[0]);
         exit(-1);
     }
 
-    char *program = argv[2];
+    char *script_file = argv[arg_idx];
+    char *program = argv[arg_idx + 1];
     parse_config(program);
 
     if (config.no_code_fault) {
@@ -982,11 +1308,11 @@ int main(int argc, char **argv) {
     load_symmap(symmap_path);
 #endif
 
-    if (parse_script(argv[1])) {
+    if (parse_script(script_file)) {
         exit(-1);
     }
     DEBUG("Loaded %d commands\n", commands_count);
-    char **child_args = (char **) &argv[2];
+    char **child_args = (char **) &argv[arg_idx + 1];
 
     if (config.seed) {
         srand(config.seed);
@@ -1024,11 +1350,16 @@ int main(int argc, char **argv) {
         waitpid(pid, &status, 0);
         show_status(status);
         start_time = time(NULL);
-        while (WIFSTOPPED(status)) {
-            if (ptrace_instruction_pointer(pid)) {
-                break;
+        if (opt_fast && can_use_breakpoints()) {
+            DEBUG("Using fast breakpoint mode\n");
+            run_with_breakpoints(pid, &status);
+        } else {
+            while (WIFSTOPPED(status)) {
+                if (ptrace_instruction_pointer(pid)) {
+                    break;
+                }
+                status = singlestep(pid);
             }
-            status = singlestep(pid);
         }
         show_status(status);
         DEBUG("Detaching\n");
@@ -1037,6 +1368,7 @@ int main(int argc, char **argv) {
         usleep(1000);
         kill(pid, 9);
         free(commands);
+        free(bp_list);
 #ifdef SYMMAP_SUPPORT
         for (int i = 0; i < sym_count; i++) free(sym_map[i].key);
         for (int i = 0; i < line_count; i++) free(line_map[i].key);
